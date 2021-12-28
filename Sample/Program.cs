@@ -10,11 +10,22 @@ namespace Sample
     using System;
     using System.Diagnostics;
     using System.IO;
+    using System.Net.NetworkInformation;
+    using System.Threading;
     using SimpleBrowser;
 
     internal class Program
     {
         private static void Main(string[] args)
+        {
+            NetworkChange.NetworkAvailabilityChanged += new NetworkAvailabilityChangedEventHandler(
+                (sender, e) => AvailabilityChangedCallback(sender, e));
+
+            Console.WriteLine("Press any key to exit...");
+            Console.ReadKey();
+        }
+
+        static void AutoConnectNetwork()
         {
             Browser browser = new Browser();
             try
@@ -24,80 +35,38 @@ namespace Sample
                 browser.MessageLogged += new Action<Browser, string>(OnBrowserMessageLogged);
 
                 // we'll fake the user agent for websites that alter their content for unrecognised browsers
-                browser.UserAgent = "Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US) AppleWebKit/534.10 (KHTML, like Gecko) Chrome/8.0.552.224 Safari/534.10";
+                browser.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36 Edg/96.0.1054.62";
 
-                // browse to GitHub
-                browser.Navigate("http://github.com/");
-                if (LastRequestFailed(browser))
-                {
-                    // always check the last request in case the page failed to load
-                    return;
-                }
+                // browse to link
+                browser.Navigate("http://192.168.40.1:8090/httpclient.html");
+                if (LastRequestFailed(browser)) return;
+
+                // auto fill input
+                browser.Log("Fill ussername / password.");
+                browser.Find(id: "username").Value = "khaivq";
+                browser.Find(id: "password").Value = "Savis@A123";
+                Console.WriteLine("Fill ussername / password.");
 
                 // click the login link and click it
-                browser.Log("First we need to log in, so browse to the login page, fill in the login details and submit the form.");
-                HtmlResult loginLink = browser.Find("a", FindBy.Text, "Sign&nbsp;in");
-                if (!loginLink.Exists)
-                {
-                    browser.Log("Can't find the login link! Perhaps the site is down for maintenance?");
-                }
-                else
-                {
-                    loginLink.Click();
-                    if (LastRequestFailed(browser))
-                    {
-                        return;
-                    }
+                browser.Log("Click login button.");
+                browser.Find(id: "loginbutton").Click();
+                Console.WriteLine($"Click login button with result: {LastRequestFailed(browser)}");
 
-                    // fill in the form and click the login button - the fields are easy to locate because they have ID attributes
-                    browser.Find("login_field").Value = "youremail@domain.com";
-                    browser.Find("password").Value = "yourpassword";
-                    browser.Find(ElementType.Button, "name", "commit").Click();
-                    if (LastRequestFailed(browser))
-                    {
-                        return;
-                    }
-
-                    // see if the login succeeded - ContainsText() is very forgiving, so don't worry about whitespace, casing, html tags separating the text, etc.
-                    if (browser.ContainsText("Incorrect username or password"))
-                    {
-                        browser.Log("Login failed!", LogMessageType.Error);
-                    }
-                    else
-                    {
-                        // After logging in, we should check that the page contains elements that we recognise
-                        if (!browser.ContainsText("Your Repositories"))
-                        {
-                            browser.Log("There wasn't the usual login failure message, but the text we normally expect isn't present on the page");
-                        }
-                        else
-                        {
-                            browser.Log("Your News Feed:");
-                            // we can use simple jquery selectors, though advanced selectors are yet to be implemented
-                            foreach (HtmlResult item in browser.Select("div.news .title"))
-                            {
-                                browser.Log("* " + item.Value);
-                            }
-                        }
-                    }
-                }
             }
             catch (Exception ex)
             {
                 browser.Log(ex.Message, LogMessageType.Error);
                 browser.Log(ex.StackTrace, LogMessageType.StackTrace);
+                Console.WriteLine(ex.Message + ex.StackTrace);
             }
-            finally
+        }
+
+        static void AvailabilityChangedCallback(object sender, NetworkAvailabilityEventArgs e)
+        {
+            while (!e.IsAvailable)
             {
-                string path = WriteFile("log-" + DateTime.UtcNow.Ticks + ".html", browser.RenderHtmlLogFile("SimpleBrowser Sample - Request Log"));
-
-                Console.WriteLine("Log file published to:");
-                Console.WriteLine(path);
-
-                var process = new Process();
-                process.StartInfo.FileName = path;
-                process.StartInfo.UseShellExecute = true;
-                process.Start();
+                AutoConnectNetwork();
+                Thread.Sleep(30000);
             }
         }
 
@@ -106,6 +75,7 @@ namespace Sample
             if (browser.LastWebException != null)
             {
                 browser.Log("There was an error loading the page: " + browser.LastWebException.Message);
+                Console.WriteLine("There was an error loading the page: " + browser.LastWebException.Message);
                 return true;
             }
             return false;
